@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Reservas Clase Dirigida Danza Aérea</title>
   <link href="https://fonts.googleapis.com/css2?family=Segoe+UI&display=swap" rel="stylesheet"/>
+
+  <!-- Calendario -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
   <style>
     body {
       font-family: 'Segoe UI', sans-serif;
@@ -37,30 +42,14 @@
       border-radius: 8px;
       border: 1px solid #ccc;
       font-size: 15px;
-    }
-    .days {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      justify-content: center;
-    }
-    .days button {
-      background-color: #eee;
-      border: none;
-      padding: 10px 14px;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background 0.3s;
-    }
-    .days button.active-day {
-      background-color: #ff9800;
-      color: white;
+      box-sizing: border-box;
     }
     button[type="submit"] {
       background: #ffa726;
       color: white;
       font-weight: bold;
       border: none;
+      cursor: pointer;
     }
     #mensaje {
       display: none;
@@ -88,9 +77,18 @@
       border: none;
       border-radius: 10px;
       cursor: pointer;
+      width: 100%;
+    }
+    #diaTexto{
+      display:block;
+      margin-top:-10px;
+      margin-bottom:16px;
+      color:#666;
+      font-size: 13px;
     }
   </style>
 </head>
+
 <body>
   <div class="container">
     <h2>Reservas Clase Dirigida Danza Aérea</h2>
@@ -105,11 +103,14 @@
       <label>Celular:</label>
       <input type="text" name="celular" required />
 
-      <label>Selecciona un día:</label>
-      <div id="dias" class="days"></div>
+      <label>Selecciona una fecha:</label>
+      <input type="text" id="fecha" name="fecha" placeholder="Elige un día en el calendario" readonly required />
+      <small id="diaTexto"></small>
 
       <label>Horario:</label>
-      <select name="horario" id="horario" required></select>
+      <select name="horario" id="horario" required>
+        <option value="">Selecciona una fecha primero</option>
+      </select>
 
       <button type="submit">Reservar</button>
     </form>
@@ -118,104 +119,158 @@
     <button id="otraReserva">Hacer otra reserva</button>
   </div>
 
-  <script>
-  const API_URL = 'https://script.google.com/macros/s/AKfycbz3ewB_Wy-rBIlpsYIFfL2ddx0jA4rBzNE_4CS9sMkSLwe_kyTCQlQS9nAP8X-zkIKE/exec';
-  let diaSeleccionado = "";
-  let disponibilidad = {};
+<script>
+const API_URL = 'https://script.google.com/macros/s/AKfycbz3ewB_Wy-rBIlpsYIFfL2ddx0jA4rBzNE_4CS9sMkSLwe_kyTCQlQS9nAP8X-zkIKE/exec';
 
-  // Cargar disponibilidad usando JSONP
-  function mostrarDiasDisponibles(data) {
-    if (!data || typeof data !== 'object') {
-      mostrarMensaje("Error al cargar disponibilidad.", false);
-      return;
-    }
+let disponibilidad = {}; // { "Lunes": ["7:00 p. m. - 9:00 p. m.", ...], ... }
+let fechaSeleccionada = "";
+let diaSeleccionado = "";
 
-    disponibilidad = data;
-    const diasDiv = document.getElementById("dias");
-    diasDiv.innerHTML = "";
-    Object.keys(disponibilidad).forEach(dia => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = dia;
-      btn.onclick = () => seleccionarDia(dia, btn);
-      diasDiv.appendChild(btn);
-    });
+// JSONP callback
+function mostrarDiasDisponibles(data) {
+  if (!data || typeof data !== 'object') {
+    mostrarMensaje("Error al cargar disponibilidad.", false);
+    return;
   }
+  disponibilidad = data;
+  initCalendar();
+}
 
-  function cargarDisponibilidad() {
-    const script = document.createElement("script");
-    script.src = `${API_URL}?action=obtenerDisponibilidad&callback=mostrarDiasDisponibles`;
-    document.body.appendChild(script);
-  }
+function cargarDisponibilidad() {
+  const script = document.createElement("script");
+  script.src = `${API_URL}?action=obtenerDisponibilidad&callback=mostrarDiasDisponibles`;
+  document.body.appendChild(script);
+}
 
-  function seleccionarDia(dia, boton) {
-    diaSeleccionado = dia;
-    document.querySelectorAll("#dias button").forEach(b => b.classList.remove("active-day"));
-    boton.classList.add("active-day");
+function initCalendar() {
+  const diasDisponibles = new Set(Object.keys(disponibilidad)); // "Lunes", "Miércoles", ...
 
-    const select = document.getElementById("horario");
-    select.innerHTML = "";
-    disponibilidad[dia].forEach(h => {
-      const opt = document.createElement("option");
-      opt.value = h;
-      opt.textContent = h;
-      select.appendChild(opt);
-    });
-  }
+  const mapDayNameToIndex = {
+    "Domingo": 0,
+    "Lunes": 1,
+    "Martes": 2,
+    "Miércoles": 3,
+    "Miercoles": 3,
+    "Jueves": 4,
+    "Viernes": 5,
+    "Sábado": 6,
+    "Sabado": 6
+  };
 
-  document.getElementById("reservaForm").addEventListener("submit", async e => {
-    e.preventDefault();
-    if (!diaSeleccionado) return mostrarMensaje("Selecciona un día antes de reservar", false);
+  const allowedIndexes = new Set(
+    Array.from(diasDisponibles)
+      .map(d => mapDayNameToIndex[d])
+      .filter(v => v !== undefined)
+  );
 
-    const form = e.target;
-    const data = new FormData(form);
-    data.append("dia", diaSeleccionado);
+  const input = document.getElementById("fecha");
 
-    const body = new URLSearchParams();
-    for (const pair of data.entries()) body.append(pair[0], pair[1]);
+  // si ya estaba, destruir
+  if (input._flatpickr) input._flatpickr.destroy();
 
-    try {
-      const res = await fetch(API_URL, {
-        method: "POST",
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString()
-      });
-
-      const text = await res.text();
-      mostrarMensaje(text, text.includes("✅"));
-
-      if (text.includes("✅")) {
-        form.reset();
-        diaSeleccionado = "";
-        document.getElementById("horario").innerHTML = "";
-        document.querySelectorAll("#dias button").forEach(b => b.classList.remove("active-day"));
-        document.getElementById("otraReserva").style.display = "block";
-        cargarDisponibilidad();
+  flatpickr("#fecha", {
+    dateFormat: "Y-m-d",
+    minDate: "today",
+    // cuánto futuro quieres permitir (ej: 90 días). Ajusta si quieres.
+    maxDate: new Date().fp_incr(90),
+    enable: [
+      function(date){
+        return allowedIndexes.has(date.getDay());
       }
-    } catch (error) {
-      mostrarMensaje("Error al enviar la reserva.", false);
+    ],
+    onChange: function(selectedDates, dateStr){
+      fechaSeleccionada = dateStr;
+      diaSeleccionado = obtenerNombreDia(dateStr);
+      document.getElementById("diaTexto").textContent = `Día: ${diaSeleccionado}`;
+      cargarHorariosParaDia(diaSeleccionado);
     }
   });
 
-  function mostrarMensaje(msg, ok) {
-    const mensaje = document.getElementById("mensaje");
-    mensaje.className = ok ? "ok" : "err";
-    mensaje.textContent = msg;
-    mensaje.style.display = "block";
+  resetUI();
+}
+
+function resetUI(){
+  fechaSeleccionada = "";
+  diaSeleccionado = "";
+  document.getElementById("diaTexto").textContent = "";
+  const sel = document.getElementById("horario");
+  sel.innerHTML = `<option value="">Selecciona una fecha primero</option>`;
+}
+
+function obtenerNombreDia(yyyy_mm_dd) {
+  const [y,m,d] = yyyy_mm_dd.split("-").map(Number);
+  const dt = new Date(y, m-1, d, 12, 0, 0);
+  const dias = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+  return dias[dt.getDay()];
+}
+
+function cargarHorariosParaDia(dia) {
+  const select = document.getElementById("horario");
+  select.innerHTML = "";
+
+  const horas = disponibilidad[dia] || [];
+  if (!horas.length) {
+    select.innerHTML = `<option value="">No hay horarios disponibles</option>`;
+    return;
   }
 
-  document.getElementById("otraReserva").addEventListener("click", () => {
-    document.getElementById("reservaForm").reset();
-    document.getElementById("horario").innerHTML = "";
-    document.querySelectorAll("#dias button").forEach(b => b.classList.remove("active-day"));
-    document.getElementById("mensaje").style.display = "none";
-    document.getElementById("otraReserva").style.display = "none";
-    diaSeleccionado = "";
-    cargarDisponibilidad();
+  horas.forEach(h => {
+    const opt = document.createElement("option");
+    opt.value = h;
+    opt.textContent = h;
+    select.appendChild(opt);
   });
+}
 
-  // Inicia carga
+document.getElementById("reservaForm").addEventListener("submit", async e => {
+  e.preventDefault();
+
+  if (!fechaSeleccionada) return mostrarMensaje("Selecciona una fecha en el calendario.", false);
+
+  const form = e.target;
+  const data = new FormData(form);
+
+  const body = new URLSearchParams();
+  for (const pair of data.entries()) body.append(pair[0], pair[1]);
+
+  try {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+
+    const text = await res.text();
+    mostrarMensaje(text, text.includes("✅"));
+
+    if (text.includes("✅")) {
+      form.reset();
+      resetUI();
+      document.getElementById("otraReserva").style.display = "block";
+      cargarDisponibilidad(); // refrescar cupos
+    }
+  } catch (error) {
+    mostrarMensaje("Error al enviar la reserva.", false);
+  }
+});
+
+function mostrarMensaje(msg, ok) {
+  const mensaje = document.getElementById("mensaje");
+  mensaje.className = ok ? "ok" : "err";
+  mensaje.textContent = msg;
+  mensaje.style.display = "block";
+}
+
+document.getElementById("otraReserva").addEventListener("click", () => {
+  document.getElementById("reservaForm").reset();
+  resetUI();
+  document.getElementById("mensaje").style.display = "none";
+  document.getElementById("otraReserva").style.display = "none";
   cargarDisponibilidad();
+});
+
+// Inicio
+cargarDisponibilidad();
 </script>
 
 </body>
